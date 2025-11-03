@@ -1,0 +1,60 @@
+services:
+  node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${PROJECT_NAME}-node
+    working_dir: /application
+    volumes:
+      - ./../:/application
+    networks:
+      - internal
+    ports:
+      - '${PORT:-3000}:3000'
+      - '5555:5555'
+    env_file:
+      - .env
+    depends_on:
+      - pgsql
+      - redis
+    stdin_open: true
+    tty: true
+
+  pgsql:
+    image: postgres:13
+    container_name: ${PROJECT_NAME}-pgsql
+    env_file:
+      - .env
+    environment:
+      PGPASSWORD: '${DB_PASSWORD}'
+      POSTGRES_DB: '${DB_DATABASE}'
+      POSTGRES_USER: '${DB_USERNAME}'
+      POSTGRES_PASSWORD: '${DB_PASSWORD}'
+    volumes:
+      - ./sourcefiles/pgsql:/tmp
+      - 'pg-data:/var/lib/postgresql/data'
+    ports:
+      - '${DB_PORT}:5432'
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME}-redis
+    restart: always
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+    ports:
+      - '${REDIS_PORT}:6379'
+    networks:
+      - internal
+
+volumes:
+  pg-data:
+    driver: local
+networks:
+  internal:
+    driver: bridge
