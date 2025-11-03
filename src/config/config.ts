@@ -18,4 +18,11 @@ export default () => ({
     secret: process.env.JWT_SECRET ?? 'jwt_secret_key',
     expiresInSeconds: parseInt(process.env.JWT_EXPIRES_IN ?? '3600', 10),
   },
+  minio: {
+    endpoint: process.env.MINIO_ENDPOINT ?? 'http://localhost:9000',
+    region: process.env.MINIO_REGION ?? 'us-east-1',
+    accessKey: process.env.MINIO_ROOT_USER ?? 'minioadmin',
+    secretKey: process.env.MINIO_ROOT_PASSWORD ?? 'minioadmin',
+    bucket: process.env.MINIO_BUCKET ?? 'media',
+  },
 });

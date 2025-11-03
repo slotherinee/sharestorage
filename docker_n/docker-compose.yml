@@ -17,6 +17,7 @@ services:
     depends_on:
       - pgsql
       - redis
+      - minio
     stdin_open: true
     tty: true
 
@@ -52,8 +53,27 @@ services:
     networks:
       - internal
 
+  minio:
+    image: minio/minio:latest
+    container_name: ${PROJECT_NAME}-minio
+    env_file:
+      - .env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    networks:
+      - internal
+
 volumes:
   pg-data:
+    driver: local
+  minio-data:
     driver: local
 networks:
   internal:

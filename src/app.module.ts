@@ -4,6 +4,7 @@ import { DatabaseModule } from './database/database.module';
 import configuration from './config/config';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AuthModule } from './auth/auth.module';
     DatabaseModule,
     UsersModule,
     AuthModule,
+    StorageModule,
   ],
   controllers: [],
   providers: [],
