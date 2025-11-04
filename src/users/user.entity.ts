@@ -2,9 +2,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Media } from '../media/media.entity';
 
 @Entity({ name: 'users' })
 export class User {
@@ -22,6 +24,9 @@ export class User {
 
   @Column({ default: false })
   isPublic: boolean;
+
+  @OneToMany(() => Media, (media) => media.owner)
+  media: Media[];
 
   @CreateDateColumn()
   createdAt: Date;

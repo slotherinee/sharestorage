@@ -4,4 +4,5 @@ export type MinioConfig = {
   accessKey: string;
   secretKey: string;
   bucket: string;
+  publicEndpoint?: string | null;
 };

@@ -1,8 +1,9 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
@@ -10,12 +11,15 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
-import { MINIO_CLIENT } from './utils/storage.constants';
+import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from './utils/storage.constants';
 
 @Injectable()
 export class StorageService implements OnModuleInit {
   constructor(
     @Inject(MINIO_CLIENT) private readonly s3Client: S3Client,
+    @Optional()
+    @Inject(MINIO_PUBLIC_CLIENT)
+    private readonly publicS3Client: S3Client | null,
     private readonly configService: ConfigService,
   ) {}
 
@@ -74,6 +78,24 @@ export class StorageService implements OnModuleInit {
     );
   }
 
+  async deleteObjects(keys: string[]) {
+    const chunks = this.chunk(keys, 1000);
+    for (const chunk of chunks) {
+      if (chunk.length === 0) {
+        continue;
+      }
+      await this.s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: {
+            Objects: chunk.map((key) => ({ Key: key })),
+            Quiet: true,
+          },
+        }),
+      );
+    }
+  }
+
   async getObjectStream(key: string) {
     const response = await this.s3Client.send(
       new GetObjectCommand({
@@ -89,8 +111,21 @@ export class StorageService implements OnModuleInit {
       Bucket: this.bucket,
       Key: key,
     });
-    return getSignedUrl(this.s3Client, command, {
+    const client = this.publicS3Client ?? this.s3Client;
+    const signedUrl = await getSignedUrl(client, command, {
       expiresIn: expiresInSeconds,
     });
+    return signedUrl;
+  }
+
+  private chunk<T>(values: T[], size: number) {
+    if (size <= 0) {
+      return [values];
+    }
+    const result: T[][] = [];
+    for (let i = 0; i < values.length; i += size) {
+      result.push(values.slice(i, i + size));
+    }
+    return result;
   }
 }

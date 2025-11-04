@@ -2,7 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { S3Client } from '@aws-sdk/client-s3';
 import { StorageService } from './storage.service';
-import { MINIO_CLIENT } from './utils/storage.constants';
+import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from './utils/storage.constants';
 import { MinioConfig } from './types/storage.types';
 
 @Global()
@@ -21,6 +21,25 @@ import { MinioConfig } from './types/storage.types';
           credentials: {
             accessKeyId: minioConfig?.accessKey ?? 'minioadmin',
             secretAccessKey: minioConfig?.secretKey ?? 'minioadmin',
+          },
+        });
+      },
+    },
+    {
+      provide: MINIO_PUBLIC_CLIENT,
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const minioConfig = configService.get<MinioConfig>('minio');
+        if (!minioConfig?.publicEndpoint) {
+          return null;
+        }
+        return new S3Client({
+          region: minioConfig.region ?? 'us-east-1',
+          endpoint: minioConfig.publicEndpoint,
+          forcePathStyle: true,
+          credentials: {
+            accessKeyId: minioConfig.accessKey ?? 'minioadmin',
+            secretAccessKey: minioConfig.secretKey ?? 'minioadmin',
           },
         });
       },

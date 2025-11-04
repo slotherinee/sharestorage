@@ -5,6 +5,7 @@ import configuration from './config/config';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { StorageModule } from './storage/storage.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { StorageModule } from './storage/storage.module';
     UsersModule,
     AuthModule,
     StorageModule,
+    MediaModule,
   ],
   controllers: [],
   providers: [],

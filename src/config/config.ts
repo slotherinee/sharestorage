@@ -24,5 +24,6 @@ export default () => ({
     accessKey: process.env.MINIO_ROOT_USER ?? 'minioadmin',
     secretKey: process.env.MINIO_ROOT_PASSWORD ?? 'minioadmin',
     bucket: process.env.MINIO_BUCKET ?? 'media',
+    publicEndpoint: process.env.MINIO_PUBLIC_ENDPOINT ?? null,
   },
 });
