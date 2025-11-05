@@ -21,12 +21,12 @@ import type { AuthenticatedUser } from '../common/decorators/current-user.decora
 
 const FIVE_GB = 5 * 1024 * 1024 * 1024;
 
-@UseGuards(AuthGuard('jwt'))
 @Controller('media')
 export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
 
   @Post()
+  @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -45,7 +45,15 @@ export class MediaController {
     return this.mediaService.uploadFromFile(user.id, file, dto);
   }
 
+  @Get('public/:id')
+  async getPublicMedia(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.mediaService.getPublicMedia(id);
+  }
+
   @Get(':id')
+  @UseGuards(AuthGuard('jwt'))
   async getMedia(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -54,11 +62,13 @@ export class MediaController {
   }
 
   @Get()
+  @UseGuards(AuthGuard('jwt'))
   async listMedia(@CurrentUser() user: AuthenticatedUser) {
     return this.mediaService.listUserMedia(user.id);
   }
 
   @Delete(':id')
+  @UseGuards(AuthGuard('jwt'))
   async deleteMedia(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -67,6 +77,7 @@ export class MediaController {
   }
 
   @Delete()
+  @UseGuards(AuthGuard('jwt'))
   async deleteAllMedia(@CurrentUser() user: AuthenticatedUser) {
     return this.mediaService.deleteAllMedia(user.id);
   }

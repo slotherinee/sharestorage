@@ -66,12 +66,14 @@ export class MediaService {
     ]);
     const limit = MediaService.USER_STORAGE_LIMIT_BYTES;
     const remaining = limit > used ? limit - used : BigInt(0);
+    const totalUsedNumber = Number(used);
     return {
       items,
       usage: {
-        usedBytes: Number(used),
+        usedBytes: totalUsedNumber,
         limitBytes: Number(limit),
         remainingBytes: Number(remaining),
+        breakdown: this.buildUsageBreakdown(items, totalUsedNumber),
       },
     };
   }
@@ -89,6 +91,23 @@ export class MediaService {
     void _owner;
     return {
       ...plainMedia,
+      signedUrl,
+    };
+  }
+
+  async getPublicMedia(id: string) {
+    const media = await this.mediaRepository.findOne({ where: { id } });
+    if (!media || !media.isPublic) {
+      throw new NotFoundException('Media not found');
+    }
+    const signedUrl = await this.storageService.getSignedUrl(media.storageKey);
+    return {
+      id: media.id,
+      title: media.title,
+      mimeType: media.mimeType,
+      size: media.size,
+      originalFileName: media.originalFileName,
+      isPublic: media.isPublic,
       signedUrl,
     };
   }
@@ -166,5 +185,70 @@ export class MediaService {
     }
 
     throw new BadRequestException('Uploaded file data is not available');
+  }
+
+  private buildUsageBreakdown(items: Media[], totalUsedBytes: number) {
+    const accumulator = new Map<
+      string,
+      { count: number; totalBytes: number }
+    >();
+    for (const item of items) {
+      const category = this.categorizeMimeType(item.mimeType);
+      const current = accumulator.get(category) ?? {
+        count: 0,
+        totalBytes: 0,
+      };
+      current.count += 1;
+      current.totalBytes += item.size ?? 0;
+      accumulator.set(category, current);
+    }
+
+    const breakdown: Record<
+      string,
+      { count: number; totalBytes: number; percentage: number }
+    > = {};
+    for (const [category, stats] of accumulator.entries()) {
+      const percentage = totalUsedBytes
+        ? Number((stats.totalBytes / totalUsedBytes) * 100)
+        : 0;
+      breakdown[category] = {
+        count: stats.count,
+        totalBytes: stats.totalBytes,
+        percentage,
+      };
+    }
+    return breakdown;
+  }
+
+  private categorizeMimeType(mimeType: string | null): string {
+    if (!mimeType) {
+      return 'other';
+    }
+    const [type, subtype] = mimeType.toLowerCase().split('/');
+    if (!type) {
+      return 'other';
+    }
+    if (type === 'image') {
+      return 'image';
+    }
+    if (type === 'video') {
+      return 'video';
+    }
+    if (type === 'audio') {
+      return 'audio';
+    }
+    if (type === 'text') {
+      return 'document';
+    }
+    if (type === 'application') {
+      if (subtype?.includes('zip') || subtype?.includes('tar')) {
+        return 'archive';
+      }
+      if (subtype?.includes('pdf') || subtype?.includes('msword')) {
+        return 'document';
+      }
+      return 'application';
+    }
+    return 'other';
   }
 }
