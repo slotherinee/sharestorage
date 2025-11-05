@@ -49,6 +49,15 @@ export class Media {
   @Column({ type: 'varchar', length: 32, default: MediaStatus.Uploaded })
   status: MediaStatus;
 
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, unknown> | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  previewStorageKey: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  previewContentType: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

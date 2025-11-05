@@ -21,6 +21,25 @@ services:
     stdin_open: true
     tty: true
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${PROJECT_NAME}-worker
+    working_dir: /application
+    command: npm run start:worker
+    volumes:
+      - ./../:/application
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - pgsql
+      - minio
+    networks:
+      - internal
+    restart: unless-stopped
+
   pgsql:
     image: postgres:13
     container_name: ${PROJECT_NAME}-pgsql

@@ -5,3 +5,7 @@ export type UploadedFile = {
   buffer?: Buffer;
   path?: string;
 };
+
+export type MediaProcessingJob = {
+  mediaId: string;
+};

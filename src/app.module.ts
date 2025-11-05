@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { StorageModule } from './storage/storage.module';
 import { MediaModule } from './media/media.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { MediaModule } from './media/media.module';
     UsersModule,
     AuthModule,
     StorageModule,
+    QueueModule,
     MediaModule,
   ],
   controllers: [],

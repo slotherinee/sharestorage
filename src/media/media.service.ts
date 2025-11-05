@@ -2,28 +2,39 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import type { Readable } from 'node:stream';
+import type { Queue } from 'bullmq';
 import { Media } from './media.entity';
 import { UploadMediaDto } from './dto/upload-media.dto';
 import { StorageService } from '../storage/storage.service';
 import { MediaStatus } from './enums/media-status.enum';
-import type { UploadedFile } from './types/media.types';
+import type { UploadedFile, MediaProcessingJob } from './types/media.types';
+import {
+  MEDIA_PROCESSING_JOB,
+  MEDIA_PROCESSING_QUEUE,
+} from './media.constants';
 
 @Injectable()
 export class MediaService {
   private static readonly USER_STORAGE_LIMIT_BYTES =
     BigInt(5) * BigInt(1024) * BigInt(1024) * BigInt(1024);
 
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(
     @InjectRepository(Media)
     private readonly mediaRepository: Repository<Media>,
     private readonly storageService: StorageService,
+    @InjectQueue(MEDIA_PROCESSING_QUEUE)
+    private readonly mediaProcessingQueue: Queue<MediaProcessingJob>,
   ) {}
 
   async uploadFromFile(
@@ -53,7 +64,9 @@ export class MediaService {
       title: dto.title ?? null,
       status: MediaStatus.Uploaded,
     });
-    return this.mediaRepository.save(entity);
+    const saved = await this.mediaRepository.save(entity);
+    void this.enqueueMediaProcessing(saved.id);
+    return saved;
   }
 
   async listUserMedia(ownerId: string) {
@@ -67,8 +80,21 @@ export class MediaService {
     const limit = MediaService.USER_STORAGE_LIMIT_BYTES;
     const remaining = limit > used ? limit - used : BigInt(0);
     const totalUsedNumber = Number(used);
+    const itemsWithPreview = await Promise.all(
+      items.map(async (item) => {
+        const previewSignedUrl = item.previewStorageKey
+          ? await this.storageService.getSignedUrl(item.previewStorageKey)
+          : null;
+        const { owner: _owner, ...plain } = item;
+        void _owner;
+        return {
+          ...plain,
+          previewSignedUrl,
+        };
+      }),
+    );
     return {
-      items,
+      items: itemsWithPreview,
       usage: {
         usedBytes: totalUsedNumber,
         limitBytes: Number(limit),
@@ -86,12 +112,18 @@ export class MediaService {
     if (!media.isPublic && media.ownerId !== requesterId) {
       throw new ForbiddenException('Access denied');
     }
-    const signedUrl = await this.storageService.getSignedUrl(media.storageKey);
+    const [signedUrl, previewSignedUrl] = await Promise.all([
+      this.storageService.getSignedUrl(media.storageKey),
+      media.previewStorageKey
+        ? this.storageService.getSignedUrl(media.previewStorageKey)
+        : Promise.resolve<string | null>(null),
+    ]);
     const { owner: _owner, ...plainMedia } = media;
     void _owner;
     return {
       ...plainMedia,
       signedUrl,
+      previewSignedUrl,
     };
   }
 
@@ -100,7 +132,12 @@ export class MediaService {
     if (!media || !media.isPublic) {
       throw new NotFoundException('Media not found');
     }
-    const signedUrl = await this.storageService.getSignedUrl(media.storageKey);
+    const [signedUrl, previewSignedUrl] = await Promise.all([
+      this.storageService.getSignedUrl(media.storageKey),
+      media.previewStorageKey
+        ? this.storageService.getSignedUrl(media.previewStorageKey)
+        : Promise.resolve<string | null>(null),
+    ]);
     return {
       id: media.id,
       title: media.title,
@@ -108,7 +145,9 @@ export class MediaService {
       size: media.size,
       originalFileName: media.originalFileName,
       isPublic: media.isPublic,
+      metadata: media.metadata,
       signedUrl,
+      previewSignedUrl,
     };
   }
 
@@ -120,6 +159,15 @@ export class MediaService {
       throw new NotFoundException('Media not found');
     }
     await this.storageService.deleteObject(media.storageKey);
+    if (media.previewStorageKey) {
+      await this.storageService
+        .deleteObject(media.previewStorageKey)
+        .catch((error) =>
+          this.logger.warn(
+            `Failed to delete preview for media ${media.id}: ${String(error)}`,
+          ),
+        );
+    }
     await this.mediaRepository.remove(media);
     return { deletedId: media.id };
   }
@@ -130,8 +178,11 @@ export class MediaService {
       return { deletedCount: 0 };
     }
 
-    const keys = mediaItems.map((item) => item.storageKey);
-    await this.storageService.deleteObjects(keys);
+    const primaryKeys = mediaItems.map((item) => item.storageKey);
+    const previewKeys = mediaItems
+      .map((item) => item.previewStorageKey)
+      .filter((key): key is string => Boolean(key));
+    await this.storageService.deleteObjects([...primaryKeys, ...previewKeys]);
 
     await this.mediaRepository.remove(mediaItems);
     return { deletedCount: mediaItems.length };
@@ -160,6 +211,28 @@ export class MediaService {
   private buildStorageKey(ownerId: string, originalName: string) {
     const safeName = originalName.replace(/[^a-zA-Z0-9.\-_/]/g, '_');
     return `${ownerId}/${randomUUID()}-${safeName}`;
+  }
+
+  private async enqueueMediaProcessing(mediaId: string) {
+    try {
+      await this.mediaProcessingQueue.add(
+        MEDIA_PROCESSING_JOB,
+        { mediaId },
+        {
+          removeOnComplete: true,
+          removeOnFail: 25,
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 1000,
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to enqueue media processing for ${mediaId}: ${String(error)}`,
+      );
+    }
   }
 
   private createUploadPayload(file: UploadedFile): {
