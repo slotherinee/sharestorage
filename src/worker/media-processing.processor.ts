@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import sharp, { Metadata as SharpMetadata } from 'sharp';
 import { Readable } from 'node:stream';
+import { Counter, Histogram, register } from 'prom-client';
 import { StorageService } from '../storage/storage.service';
 import { Media } from '../media/media.entity';
 import {
@@ -19,6 +20,8 @@ import type { MediaProcessingJob } from '../media/types/media.types';
 @Processor(MEDIA_PROCESSING_QUEUE)
 export class MediaProcessingProcessor extends WorkerHost {
   private readonly logger = new Logger(MediaProcessingProcessor.name);
+  private readonly jobDurationHistogram: Histogram<string>;
+  private readonly jobCounter: Counter<string>;
 
   constructor(
     private readonly storageService: StorageService,
@@ -26,24 +29,45 @@ export class MediaProcessingProcessor extends WorkerHost {
     private readonly mediaRepository: Repository<Media>,
   ) {
     super();
+    this.jobDurationHistogram = this.getOrCreateHistogram(
+      'media_processing_job_duration_seconds',
+      'Duration of media processing jobs in seconds',
+    );
+    this.jobCounter = this.getOrCreateCounter(
+      'media_processing_jobs_total',
+      'Count of processed media jobs classified by status',
+    );
   }
 
   async process(job: Job<MediaProcessingJob>): Promise<void> {
     if (job.name !== MEDIA_PROCESSING_JOB) {
       this.logger.warn(`Skipping job with unexpected name: ${job.name}`);
+      this.jobCounter.labels('invalid_name').inc();
       return;
     }
+
+    const endTimer = this.jobDurationHistogram.startTimer();
+    let status: 'success' | 'non_image' | 'missing_media' | 'error' = 'success';
 
     const media = await this.mediaRepository.findOne({
       where: { id: job.data.mediaId },
     });
     if (!media) {
       this.logger.warn(`Media ${job.data.mediaId} not found`);
+      status = 'missing_media';
+      this.jobCounter.labels(status).inc();
+      endTimer({ status });
       return;
     }
 
     if (!media.mimeType?.startsWith('image/')) {
-      await this.handleNonImage(media);
+      status = 'non_image';
+      try {
+        await this.handleNonImage(media);
+      } finally {
+        this.jobCounter.labels(status).inc();
+        endTimer({ status });
+      }
       return;
     }
 
@@ -87,10 +111,15 @@ export class MediaProcessingProcessor extends WorkerHost {
       media.metadata = previewMetadata;
 
       await this.mediaRepository.save(media);
+      this.jobCounter.labels(status).inc();
+      endTimer({ status });
     } catch (error) {
       this.logger.error(
         `Failed to process media ${media.id}: ${String(error)}`,
       );
+      status = 'error';
+      this.jobCounter.labels(status).inc();
+      endTimer({ status });
     }
   }
 
@@ -116,6 +145,30 @@ export class MediaProcessingProcessor extends WorkerHost {
     media.metadata = nonImageMetadata;
 
     await this.mediaRepository.save(media);
+  }
+
+  private getOrCreateHistogram(name: string, help: string): Histogram<string> {
+    const existing = register.getSingleMetric(name) as Histogram<string> | undefined;
+    if (existing) {
+      return existing;
+    }
+    return new Histogram({
+      name,
+      help,
+      labelNames: ['status'],
+    });
+  }
+
+  private getOrCreateCounter(name: string, help: string): Counter<string> {
+    const existing = register.getSingleMetric(name) as Counter<string> | undefined;
+    if (existing) {
+      return existing;
+    }
+    return new Counter({
+      name,
+      help,
+      labelNames: ['status'],
+    });
   }
 
   private streamToBuffer(stream: Readable): Promise<Buffer> {
