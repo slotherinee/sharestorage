@@ -148,7 +148,9 @@ export class MediaProcessingProcessor extends WorkerHost {
   }
 
   private getOrCreateHistogram(name: string, help: string): Histogram<string> {
-    const existing = register.getSingleMetric(name) as Histogram<string> | undefined;
+    const existing = register.getSingleMetric(name) as
+      | Histogram<string>
+      | undefined;
     if (existing) {
       return existing;
     }
@@ -160,7 +162,9 @@ export class MediaProcessingProcessor extends WorkerHost {
   }
 
   private getOrCreateCounter(name: string, help: string): Counter<string> {
-    const existing = register.getSingleMetric(name) as Counter<string> | undefined;
+    const existing = register.getSingleMetric(name) as
+      | Counter<string>
+      | undefined;
     if (existing) {
       return existing;
     }
